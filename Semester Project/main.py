@@ -5,9 +5,11 @@
 import sqlite3
 import pandas as pd
 import numpy as np
+import sklearn as sklearn
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 
 # Initial connection to allow sqlite manipulation 
 connection = sqlite3.connect('Semester Project/collection.anki2')
@@ -19,9 +21,9 @@ full_dataframe = pd.read_sql_query('SELECT * FROM revlog JOIN cards ON revlog.ci
 
 # Actual machine learning dataframe that pulls particular columns needed to evaluate things like days since review, previous successes/failures, etc. 
 # Removed flds while working with data columns to better visualize without unevenness
-ml_dataframe = pd.read_sql_query('SELECT revlog.id, revlog.cid, ease, revlog.ivl, lastivl, time, revlog.type FROM revlog JOIN cards ON revlog.cid = cards.id ' \
+ml_dataframe = pd.read_sql_query('SELECT revlog.id, revlog.cid, ease, time, revlog.type FROM revlog JOIN cards ON revlog.cid = cards.id ' \
 'JOIN notes ON cards.nid = notes.id ' \
-'WHERE cards.did IN (1691725909438, 1691370644857, 1758915141730, 1758914389578)', connection
+'WHERE cards.did IN (1691725909438, 1691370644857, 1758915141730, 1758914389578) AND revlog.type < 4', connection
                               )
 
 ml_dataframe = ml_dataframe.sort_values(['cid', 'id'])
@@ -33,19 +35,27 @@ inverted = ~ml_dataframe['Successful']
 # The below column was particularly tricky, needing to use groupby twice gave me trouble. Initially I was attempting to cumsum on a NaN value and receiving an error.
 ml_dataframe['Previous Failures'] = inverted.groupby(ml_dataframe['cid']).cumsum().groupby(ml_dataframe['cid']).shift().astype('Int64')
 
-#print(full_dataframe)
-print(ml_dataframe)
+# Creating a new dataframe with only type = 1, since in Anki, this signifies a regular scheduled review.
+full_training_dataframe = ml_dataframe.query("type == 1")
 
-# Column ideas for multi variate 
-# lastIvl
-# ease? 
-# currentIVL
-# type maybe?
-# Would want the revlog version of all of these, not card version
+# Creating x and y axis's with x representing only the data needed to train/make a prediction and y representing whether the respective training/prediction was correct/incorrect.
+#column 7 9 and 10 i think 
+X = full_training_dataframe[['Days Since Review', 'Previous Successes', 'Previous Failures']]
+y = full_training_dataframe['Successful']
+
+# This splits the original x and y lists into two separate lists for each variable, one for training the model and one for testing it.
+x_train, x_test, y_train, y_test = train_test_split(X, y, test_size = 0.20, shuffle=False)
+
+model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
+
+model.fit(x_train, y_train)
+
+#print(full_dataframe)
+#print(ml_dataframe)
+
 # Database resource https://github.com/ankidroid/Anki-Android/wiki/Database-Structure
 # https://github.com/ankidroid/Anki-Android/wiki/Database%E2%80%90Structure%E2%80%902026#34-revlog--review-log
 # Another database resource https://docs.ankiweb.net/manual/stats
-# Leaning towards ivl, lastIvl and maybe one other
 
 # Additional ideas on top of model prediction: Take all reviews and find an average amount of time per review, find average ivl, average time the review was at, etc etc. 
 # Depending on how long cleaning data takes to figure out
